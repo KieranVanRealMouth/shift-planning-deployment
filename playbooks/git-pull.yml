@@ -1,0 +1,33 @@
+---
+# Simple playbook to pull latest version from git repository
+# Assumes repository is already cloned and just pulls latest changes
+# Runs as root user
+
+- name: Pull latest version from Git repository
+  hosts: all
+  become: yes
+  
+  tasks:
+    - name: Check if git repository exists
+      ansible.builtin.stat:
+        path: "{{ app_base_path }}/.git"
+      register: git_dir
+
+    - name: Fail if repository not found
+      ansible.builtin.fail:
+        msg: "Git repository not found at {{ app_base_path }}. Please run the clone playbook first."
+      when: not git_dir.stat.exists
+
+    - name: Pull latest changes from Git repository
+      ansible.builtin.command:
+        cmd: git pull
+        chdir: "{{ app_base_path }}"
+      register: git_pull_result
+      changed_when: "'Already up to date' not in git_pull_result.stdout"
+
+    - name: Display Git pull result
+      ansible.builtin.debug:
+        msg: |
+          Git pull completed in: {{ app_base_path }}
+          Result: {{ git_pull_result.stdout }}
+          Changed: {{ git_pull_result.changed }}

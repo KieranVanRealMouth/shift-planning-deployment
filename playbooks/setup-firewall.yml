@@ -1,0 +1,29 @@
+# This playbook is for setting up the firewall for the virtual machine
+- name: Setup Firewall for Virtual Machine
+  hosts: all
+  become: yes
+  tasks:
+    - name: Install firewalld and required packages
+      ansible.builtin.dnf:
+        name:
+          - firewalld
+          - python3-dbus
+        state: present
+
+    - name: Start and enable firewalld
+      ansible.builtin.systemd:
+        name: firewalld
+        state: started
+        enabled: yes
+
+    - name: Configure firewall
+      ansible.posix.firewalld:  
+        port: "{{ item }}/tcp"
+        permanent: yes
+        state: enabled
+      loop: "{{ firewalld_ports | default([80, 443, 22]) }}"
+
+    - name: Reload firewall
+      ansible.builtin.systemd:  
+        name: firewalld
+        state: reloaded

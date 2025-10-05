@@ -1,0 +1,19 @@
+- name: Deploy Load Balancer
+  hosts: all
+  become: yes
+  tasks:
+    - name: Configure load balancer HAProxy
+      ansible.builtin.template:
+        src: "../templates/haproxy.cfg.j2"
+        dest: /etc/haproxy/haproxy.cfg
+
+    - name: Ensure HAProxy is started and enabled
+      ansible.builtin.service:
+        name: haproxy
+        state: started
+        enabled: yes
+
+    - name: Restart HAProxy
+      ansible.builtin.service:
+        name: haproxy
+        state: restarted

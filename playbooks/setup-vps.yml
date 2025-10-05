@@ -1,0 +1,178 @@
+---
+# Single-node deployment playbook for Shift Planning application
+# Deploys all services (database, auth, scheduling, gateway) on a single machine using Podman
+
+- name: Deploy Shift Planning Services on a single VPS
+  hosts: all
+  become: yes
+  vars:
+    # Base paths for building containers
+    project_root: "{{ playbook_dir }}/../../"
+
+  tasks:
+    - name: Update all packages
+      ansible.builtin.dnf: 
+        name: '*'
+        state: latest
+      
+
+    - name: Install necessary Python and required packages
+      dnf:
+        name:
+          - python3
+          - python3-devel
+          - python3-pip
+          - gcc
+        state: present
+
+
+    - name: Enable NodeJS stream
+      dnf:
+        name: '@nodejs:20'
+        state: present
+      
+
+    - name: Install required Python packages (packaging, psycopg2-binary)
+      ansible.builtin.shell: |
+        python3 -m pip install --upgrade pip
+        python3 -m pip install packaging psycopg2-binary
+      
+    - name: Install SELinux required packages (python3-libselinux, libselinux-python3, policycoreutils-python-utils)
+      dnf:
+        name:
+          - python3-libselinux
+          - libselinux-python3
+          - policycoreutils-python-utils
+        state: present
+      
+    
+    - name: Install other packages (podman, git, nodejs, npm, firewalld, haproxy, libpq-devel)
+      ansible.builtin.dnf: 
+        name:
+          - podman
+          - git
+          - nodejs
+          - npm
+          - firewalld
+          - haproxy
+          - libpq-devel
+        state: present
+      
+
+    - name: Ensure HAProxy socket directory exists with correct permissions
+      ansible.builtin.file:
+        path: /var/run/haproxy
+        state: directory
+        owner: haproxy
+        group: haproxy
+        mode: '0755'
+
+    - name: Verify semanage is working
+      ansible.builtin.command: semanage --help
+      register: semanage_check
+      ignore_errors: yes
+      
+    - name: Debug semanage availability
+      ansible.builtin.debug:
+        msg: "semanage check result: {{ semanage_check }}"
+      when: semanage_check.failed
+
+    - name: Set correct SELinux context for HAProxy socket directory
+      ansible.builtin.command: semanage fcontext -a -t haproxy_var_run_t "/var/run/haproxy(/.*)?"
+      ignore_errors: yes
+      when: not semanage_check.failed
+
+    - name: Apply SELinux context to HAProxy socket directory
+      ansible.builtin.command: restorecon -Rv /var/run/haproxy
+      when: not semanage_check.failed
+      
+
+    - name: Ensure .ssh directory exists
+      ansible.builtin.file:
+        path: "/root/.ssh"
+        state: directory
+        mode: '0700'
+      
+
+    - name: Generate SSH key for GitHub
+      ansible.builtin.command: 
+        cmd: ssh-keygen -t ed25519 -f {{ ssh_key_path }} -N ""
+      args:
+        creates: "{{ ssh_key_path }}"
+
+    - name: Set correct permissions on SSH private key
+      ansible.builtin.file:
+        path: "{{ ssh_key_path }}"
+        mode: '0600'
+        owner: root
+        group: root
+
+    - name: Set correct permissions on SSH public key
+      ansible.builtin.file:
+        path: "{{ ssh_key_path }}.pub"
+        mode: '0644'
+        owner: root
+        group: root
+      
+
+    - name: Configure Git user name
+      ansible.builtin.git_config:  
+        name: user.name
+        scope: global
+        value: "{{ git_user_name }}"
+      
+
+    - name: Configure Git user email
+      ansible.builtin.git_config:
+        name: user.email
+        scope: global
+        value: "{{ git_user_email }}"
+      
+      
+    - name: Display public SSH key
+      ansible.builtin.command:
+        cmd: cat {{ ssh_key_path }}.pub
+      register: public_key
+
+    - name: Show public SSH key
+      ansible.builtin.debug: 
+        msg: 
+          - "=== GITHUB DEPLOY KEY SETUP ==="
+          - "Please add the following public key to your GitHub repository's deploy keys:"
+          - "Repository: {{ git_repo }}"
+          - "Settings -> Deploy keys -> Add deploy key"
+          - "Title: VPS Deploy Key ({{ ansible_hostname }})"
+          - "Key: {{ public_key.stdout }}"
+          - "✓ Allow write access: YES (optional, only needed for push operations)"
+          - "================================"
+
+    - name: Extract Git hostname from repository URL
+      ansible.builtin.set_fact:
+        git_hostname: "{{ git_repo | regex_replace('^(https?://|git@)([^/:]+).*', '\\2') }}"
+
+    - name: Configure SSH to use the key for GitHub
+      ansible.builtin.blockinfile: 
+        path: "/root/.ssh/config"
+        create: yes
+        mode: '0600'
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - {{ git_hostname }}"
+        block: |
+          Host {{ git_hostname }}
+            IdentityFile {{ ssh_key_path }}
+            StrictHostKeyChecking no
+            User git
+            
+    - name: Test SSH connection to GitHub
+      ansible.builtin.command: 
+        cmd: ssh -T git@{{ git_hostname }}
+      register: ssh_test
+      failed_when: ssh_test.rc not in [0, 1]  # GitHub returns 1 on successful auth
+      changed_when: false
+      
+    - name: Display SSH connection test result
+      ansible.builtin.debug:
+        msg: 
+          - "SSH Connection Test Result:"
+          - "{{ ssh_test.stderr if ssh_test.stderr else ssh_test.stdout }}"
+          - "Note: If you see 'successfully authenticated' message, SSH is working!"
+      

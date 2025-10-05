@@ -1,0 +1,101 @@
+---
+# Git Clone playbook for Shift Planning deployment
+# Clones the repository for the first time if not already present
+# Validates repository existence before attempting clone
+
+- name: Clone Git repository for Shift Planning application
+  hosts: all
+  become: yes
+  
+  vars:
+    # Extract the parent directory from app_base_path
+    app_parent_path: "{{ app_base_path | dirname }}"
+    # Extract repository name from git URL for cloning
+    repo_name: "{{ git_repo | regex_replace('.*[:/]([^/]+)\\.git$', '\\1') }}"
+  
+  tasks:
+    - name: Display clone information
+      ansible.builtin.debug:
+        msg: |
+          Git Clone Configuration:
+          Repository: {{ git_repo }}
+          Target path: {{ app_base_path }}
+          Parent directory: {{ app_parent_path }}
+          Repository name: {{ repo_name }}
+
+    - name: Check if git repository already exists
+      ansible.builtin.stat:
+        path: "{{ app_base_path }}/.git"
+      register: git_dir
+
+    - name: Display repository status
+      ansible.builtin.debug:
+        msg: |
+          Repository status: {{ 'Already cloned' if git_dir.stat.exists else 'Not yet cloned' }}
+          Git directory exists: {{ git_dir.stat.exists }}
+
+    - name: Skip clone if repository already exists
+      ansible.builtin.debug:
+        msg: "Repository already exists at {{ app_base_path }}. Skipping clone operation."
+      when: git_dir.stat.exists
+
+    - name: Ensure parent directory exists
+      ansible.builtin.file:
+        path: "{{ app_parent_path }}"
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+      when: not git_dir.stat.exists
+
+    - name: Clone Git repository
+      ansible.builtin.git:
+        repo: "{{ git_repo }}"
+        dest: "{{ app_base_path }}"
+        version: HEAD
+        force: no
+      register: git_clone_result
+      when: not git_dir.stat.exists
+
+    - name: Display clone result
+      ansible.builtin.debug:
+        msg: |
+          Git clone completed successfully!
+          Repository: {{ git_repo }}
+          Destination: {{ app_base_path }}
+          Branch/Version: {{ git_clone_result.after if git_clone_result.after is defined else 'HEAD' }}
+      when: not git_dir.stat.exists and git_clone_result is succeeded
+
+    - name: Set correct ownership of cloned repository
+      ansible.builtin.file:
+        path: "{{ app_base_path }}"
+        owner: root
+        group: root
+        recurse: yes
+      when: not git_dir.stat.exists and git_clone_result is succeeded
+
+    - name: Verify repository was cloned successfully
+      ansible.builtin.stat:
+        path: "{{ app_base_path }}/.git"
+      register: verify_git_dir
+      when: not git_dir.stat.exists
+
+    - name: Fail if clone was unsuccessful
+      ansible.builtin.fail:
+        msg: "Git clone failed - .git directory not found at {{ app_base_path }}"
+      when: not git_dir.stat.exists and not verify_git_dir.stat.exists
+
+    - name: Display final status
+      ansible.builtin.debug:
+        msg: |
+          ================================================
+          Git Clone Operation Complete!
+          ================================================
+          Repository: {{ git_repo }}
+          Local path: {{ app_base_path }}
+          Status: {{ 'Repository was already present' if git_dir.stat.exists else 'Successfully cloned' }}
+          
+          Next steps:
+          1. Verify repository contents: ls -la {{ app_base_path }}
+          2. Check git status: cd {{ app_base_path }} && git status
+          3. Run deployment: ansible-playbook deploy-services.yml

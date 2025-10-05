@@ -1,0 +1,50 @@
+---
+# Local Environment Configuration
+app_base_path: "{{ playbook_dir }}/../.."
+
+# Service Names
+auth_service_name: "Auth"
+scheduling_service_name: "Scheduling"
+gateway_service_name: "Gateway"
+
+# Service URLs
+gateway_service_url: "http://localhost:3000" # Is externally available and therefore the real hostname
+auth_service_url: "http://sp-auth:3100" # Is available in podman network and therefore the container name
+scheduling_service_url: "http://sp-scheduling:3200" # Is available in podman network and therefore the container name
+
+# Database Configuration
+database_host: "sp-database"
+database_host_external: "localhost"
+database_port: 5432
+
+# Auth Database Configuration
+auth_database_name: "auth_db"
+auth_database_schema: "public"
+
+# Scheduling Database Configuration
+scheduling_database_name: "scheduling_db"
+scheduling_database_schema: "public"
+
+# JWT Configuration
+jwt_access_expiration: 3600  # 1 hour
+jwt_refresh_expiration: 43200  # 12 hours
+
+# Logging Configuration
+log_level: "info"
+
+# Scheduling Service Configuration
+shift_log_retention_days: 90
+
+# Container Configuration
+auth_container_name: "sp-auth"
+scheduling_container_name: "sp-scheduling"
+gateway_container_name: "sp-gateway"
+
+auth_container_port: 3100
+scheduling_container_port: 3200
+gateway_container_port: 3000
+
+# Git Configuration
+git_repo: "git@github.com:KieranVanRealMouth/shift-planning-back-end.git"
+git_user_name: "Ansible Deployment"
+git_user_email: "deployment@example.com"

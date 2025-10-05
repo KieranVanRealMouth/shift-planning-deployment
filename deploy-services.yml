@@ -1,0 +1,62 @@
+---
+# Main site playbook for Shift Planning deployment
+# Entry point that orchestrates the deployment of all services
+# This design enables future scaling to multi-node deployments
+
+- name: Shift Planning Application Deployment
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Display deployment start message
+      debug:
+        msg: |
+          Starting Shift Planning application deployment...
+          Target environment: {{ inventory_dir | basename }}
+          Deployment type: Single-node
+
+- import_playbook: playbooks/single-node.yml
+
+- name: Post-deployment tasks
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Display deployment completion message
+      debug:
+        msg: |
+          ================================================
+          Shift Planning deployment completed successfully!
+          ================================================
+          
+          Environment: {{ inventory_dir | basename }}
+          
+          Service endpoints:
+          - Gateway (Main entry point): {{ gateway_service_url }}
+          - Auth Service: {{ auth_service_url }}
+          - Scheduling Service: {{ scheduling_service_url }}
+          - Database: {{ database_host }}:{{ database_port }}
+          
+          Container names:
+          - Gateway: {{ gateway_container_name }}
+          - Auth: {{ auth_container_name }}
+          - Scheduling: {{ scheduling_container_name }}
+          - Database: sp-database (with persistent volume: shift-planning-db-data)
+          
+          Next steps:
+          1. Verify services are running: podman ps
+          2. Check logs if needed: podman logs <container_name>
+          3. Access the application at: {{ gateway_service_url }}
+          
+          Management commands:
+          - Stop all services: podman stop {{ gateway_container_name }} {{ scheduling_container_name }} {{ auth_container_name }} sp-database
+          - Remove containers: podman rm {{ gateway_container_name }} {{ scheduling_container_name }} {{ auth_container_name }} sp-database
+          - List volumes: podman volume ls
+          - Remove volume (WARNING: deletes all data): podman volume rm shift-planning-db-data
+
+- name: Show containers
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Show containers
+      command: podman ps
+      register: containers
+      changed_when: false

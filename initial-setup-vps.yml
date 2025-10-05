@@ -1,0 +1,31 @@
+---
+# Main site playbook for Shift Planning deployment
+# Entry point that orchestrates the deployment of all services
+# This design enables future scaling to multi-node deployments
+
+- name: Setup VPS
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Display start message
+      debug:
+        msg: |
+          Starting VPS setup for Shift Planning...
+
+- import_playbook: playbooks/setup-vps.yml
+
+- name: Post-deployment tasks
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Display completion message
+      debug:
+        msg: |
+          ================================================
+          VPS setup for Shift Planning completed successfully!
+          ================================================
+
+          Next steps:
+          1. SSH into VPS
+          2. Change password
+          3. 1x Rsync

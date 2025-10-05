@@ -1,0 +1,20 @@
+---
+# Local Environment Secrets - Encrypted with ansible-vault
+
+# Auth Database Credentials
+vault_auth_database_user: "auth_user"
+vault_auth_database_password: "auth_password"
+
+# Scheduling Database Credentials
+vault_scheduling_database_user: "scheduling_user"
+vault_scheduling_database_password: "scheduling_password"
+
+# JWT Secrets
+vault_jwt_access_secret: "8f4b6c2a1e9d7f3b5a0c2e4d6f8a0b2c4e6f8a0b2c4e6f8a0b2c4e6f8a0b2"
+vault_jwt_refresh_secret: "1a3c5e7g9i2k4m6o8q0s2u4w6y8a0b2c4d6e8f0g2h4i6j8k0l2m4n6p8r0"
+
+# Constructed Database URLs
+vault_auth_database_url: "postgresql://{{ vault_auth_database_user }}:{{ vault_auth_database_password }}@{{ database_host }}:{{ database_port }}/{{ auth_database_name }}?schema={{ auth_database_schema }}"
+vault_auth_database_url_external: "postgresql://{{ vault_auth_database_user }}:{{ vault_auth_database_password }}@{{ database_host_external }}:{{ database_port }}/{{ auth_database_name }}?schema={{ auth_database_schema }}"
+vault_scheduling_database_url: "postgresql://{{ vault_scheduling_database_user }}:{{ vault_scheduling_database_password }}@{{ database_host }}:{{ database_port }}/{{ scheduling_database_name }}?schema={{ scheduling_database_schema }}"
+vault_scheduling_database_url_external: "postgresql://{{ vault_scheduling_database_user }}:{{ vault_scheduling_database_password }}@{{ database_host_external }}:{{ database_port }}/{{ scheduling_database_name }}?schema={{ scheduling_database_schema }}"
