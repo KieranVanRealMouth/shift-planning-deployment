@@ -118,7 +118,7 @@ app_services:
     expose_port: false # Internal only
     startup_wait: 10
     needs_migration: true
-    migration_db_url: "{{ vault_auth_database_url_external }}"
+    migration_db_url: "{{ vault_auth_database_url }}"
     env:
       DATABASE_URL: "{{ vault_auth_database_url }}"
       JWT_ACCESS_SECRET: "{{ vault_jwt_access_secret }}"
@@ -147,7 +147,7 @@ app_services:
     expose_port: false # Internal only
     startup_wait: 10
     needs_migration: true
-    migration_db_url: "{{ vault_scheduling_database_url_external }}"
+    migration_db_url: "{{ vault_scheduling_database_url }}"
     env:
       DATABASE_URL: "{{ vault_scheduling_database_url }}"
       JWT_ACCESS_SECRET: "{{ vault_jwt_access_secret }}"
