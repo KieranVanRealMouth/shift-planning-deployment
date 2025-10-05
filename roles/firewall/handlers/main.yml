@@ -1,0 +1,7 @@
+---
+# Handlers for firewall role
+
+- name: reload firewall
+  ansible.builtin.systemd:
+    name: firewalld
+    state: reloaded

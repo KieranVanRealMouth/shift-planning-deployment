@@ -1,0 +1,89 @@
+---
+# Generic app service deployment role
+# Deploys any application service using configuration passed via service_config variable
+
+- name: Display service deployment information
+  ansible.builtin.debug:
+    msg: "Deploying service: {{ service_config.name }}"
+  tags: ["deploy", "services"]
+
+- name: Build service image
+  containers.podman.podman_image:
+    name: "{{ service_config.image_name }}"
+    path: "{{ service_config.path }}"
+    build:
+      file: "{{ service_config.path }}/Dockerfile"
+    state: present
+    force: true
+  tags: ["build", "deploy", "services"]
+
+- name: Stop and remove existing container
+  containers.podman.podman_container:
+    name: "{{ service_config.container_name }}"
+    state: absent
+  ignore_errors: true
+  tags: ["deploy", "services"]
+
+- name: Deploy service container (with exposed port)
+  containers.podman.podman_container:
+    name: "{{ service_config.container_name }}"
+    image: "{{ service_config.image_name }}"
+    state: started
+    restart_policy: "{{ restart_policy }}"
+    network: "{{ podman_network_name }}"
+    ports:
+      - "{{ service_config.port }}:{{ service_config.internal_port }}"
+    env: "{{ service_config.env }}"
+    healthcheck: "{{ service_config.healthcheck }}"
+  when: service_config.expose_port | default(true)
+  tags: ["deploy", "services"]
+
+- name: Deploy service container (internal only)
+  containers.podman.podman_container:
+    name: "{{ service_config.container_name }}"
+    image: "{{ service_config.image_name }}"
+    state: started
+    restart_policy: "{{ restart_policy }}"
+    network: "{{ podman_network_name }}"
+    env: "{{ service_config.env }}"
+    healthcheck: "{{ service_config.healthcheck }}"
+  when: not (service_config.expose_port | default(true))
+  tags: ["deploy", "services"]
+
+- name: Wait for service to be ready (exposed services)
+  wait_for:
+    host: "{{ ansible_host | default('localhost') }}"
+    port: "{{ service_config.port }}"
+    delay: "{{ wait_for_delay }}"
+    timeout: "{{ wait_for_timeout }}"
+  when: service_config.expose_port | default(true)
+  tags: ["deploy", "services"]
+
+- name: Wait for service to be ready (internal services)
+  ansible.builtin.pause:
+    seconds: "{{ service_config.startup_wait | default(5) }}"
+  when: not (service_config.expose_port | default(true))
+  tags: ["deploy", "services"]
+
+- name: Run Prisma migrations
+  block:
+    - name: Execute Prisma migration
+      command:
+        cmd: >
+          podman exec -e DATABASE_URL="{{ service_config.migration_db_url }}"
+          {{ service_config.container_name }} npx prisma migrate deploy
+      register: migrate_result
+      changed_when: migrate_result.rc == 0
+
+    - name: Display migration success
+      debug:
+        msg: "Migration for {{ service_config.name }} service completed successfully"
+      when: migrate_result.rc == 0
+
+  rescue:
+    - name: Display migration error
+      debug:
+        msg: "Migration for {{ service_config.name }} service failed. Check logs for details."
+
+  when: service_config.needs_migration | default(false)
+  tags: ["deploy", "services", "migrations"]

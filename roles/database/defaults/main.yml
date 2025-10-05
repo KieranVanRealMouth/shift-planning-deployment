@@ -1,0 +1,23 @@
+---
+# Default values for database role
+
+database_container_name: sp-database
+database_image_name: shift-planning-db
+database_volume_name: shift-planning-db-data
+database_internal_port: 5432
+podman_network_name: shift-planning-network
+
+# Database credentials (should be overridden from vault)
+postgres_db: postgres
+postgres_user: postgres
+postgres_password: admin
+
+# Healthcheck settings
+healthcheck_interval: 10s
+healthcheck_timeout: 5s
+healthcheck_retries: 5
+healthcheck_start_period: 30s
+
+# Wait for database settings
+wait_for_delay: 1
+wait_for_timeout: 60

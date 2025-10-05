@@ -1,0 +1,54 @@
+---
+# HAProxy deployment playbook for Shift Planning
+# Run this after initial-setup-vps.yml and before deploy-services.yml
+# This sets up the load balancer/reverse proxy
+
+- name: Deploy HAProxy Load Balancer
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Display start message
+      debug:
+        msg: |
+          Starting HAProxy load balancer deployment...
+          This will configure HAProxy as a reverse proxy for the gateway service.
+
+- name: Configure and Deploy HAProxy
+  hosts: all
+  become: yes
+  roles:
+    - role: haproxy
+      tags: ["haproxy", "infrastructure"]
+
+- name: Post-deployment tasks
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Display completion message
+      debug:
+        msg: |
+          ================================================
+          HAProxy deployment completed successfully!
+          ================================================
+
+          HAProxy Configuration:
+          ✓ Reverse proxy configured for gateway service
+          ✓ HAProxy listening on port 80
+          ✓ Stats interface available at http://{{ external_hostname }}:{{ haproxy_stats_port }}/stats
+
+          Backend Configuration:
+          - Gateway service: 127.0.0.1:{{ app_services[0].port }}
+
+          Next steps:
+          1. Verify HAProxy is running: systemctl status haproxy
+          2. Check HAProxy stats: curl http://localhost:{{ haproxy_stats_port }}/stats
+          3. Deploy application services: ansible-playbook deploy-services.yml -i inventories/{{ deployment_environment }}/hosts.yml
+
+          Security Notes:
+          ✓ Only port 80 (HTTP) is exposed via HAProxy
+          ✓ Gateway service port {{ app_services[0].port }} is proxied through HAProxy
+          ✓ Consider adding SSL/TLS termination for production
+
+          Available tags:
+          - --tags "haproxy"        : Deploy HAProxy configuration
+          - --tags "infrastructure" : Deploy all infrastructure components

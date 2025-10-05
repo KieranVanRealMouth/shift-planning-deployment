@@ -1,273 +1,74 @@
 ---
-# Single-node deployment playbook for Shift Planning application
-# Deploys all services (database, auth, scheduling, gateway) on a single machine using Podman
+# Single-node deployment playbook using role-based architecture
+# This is the new role-based version of single-node.yml
 
-- name: Deploy Shift Planning Services on Single Node
+- name: Deploy Shift Planning Services on Single Node (Role-Based)
   hosts: all
   become: false
-  vars:
-    auth_path: "{{ app_base_path }}/auth"
-    scheduling_path: "{{ app_base_path }}/scheduling"
-    gateway_path: "{{ app_base_path }}/gateway"
-    database_path: "{{ app_base_path }}/database"
 
   tasks:
-    - name: Ensure Podman is available
-      command: podman --version
-      register: podman_check
-      failed_when: podman_check.rc != 0
-      changed_when: false
-
-    - name: Create Podman network for services
-      containers.podman.podman_network:
-        name: shift-planning-network
-        state: present
-
-    - name: Create Podman volume for database persistence
-      containers.podman.podman_volume:
-        name: shift-planning-db-data
-        state: present
-
-    - name: Build database image
-      containers.podman.podman_image:
-        name: shift-planning-db
-        path: "{{ database_path }}"
-        build:
-          file: "{{ database_path }}/Dockerfile"
-        state: present
-        force: true
-
-    - name: Build auth service image
-      containers.podman.podman_image:
-        name: shift-planning-auth
-        path: "{{ auth_path }}"
-        build:
-          file: "{{ auth_path }}/Dockerfile"
-        state: present
-        force: true
-
-    - name: Build scheduling service image
-      containers.podman.podman_image:
-        name: shift-planning-scheduling
-        path: "{{ scheduling_path }}"
-        build:
-          file: "{{ scheduling_path }}/Dockerfile"
-        state: present
-        force: true
-
-    - name: Build gateway service image
-      containers.podman.podman_image:
-        name: shift-planning-gateway
-        path: "{{ gateway_path }}"
-        build:
-          file: "{{ gateway_path }}/Dockerfile"
-        state: present
-        force: true
-
-    - name: Stop and remove existing containers (if any)
-      containers.podman.podman_container:
-        name: "{{ item }}"
-        state: absent
-      loop:
-        - sp-database
-        - "{{ auth_container_name }}"
-        - "{{ scheduling_container_name }}"
-        - "{{ gateway_container_name }}"
-      ignore_errors: true
-
-    - name: Deploy database container
-      containers.podman.podman_container:
-        name: sp-database
-        image: shift-planning-db
-        state: started
-        restart_policy: always
-        network: shift-planning-network
-        ports:
-          - "{{ database_port }}:5432"
-        volumes:
-          - shift-planning-db-data:/var/lib/postgresql/data:Z
-        env:
-          POSTGRES_DB: postgres
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: admin
-        healthcheck:
-          test: ["CMD-SHELL", "pg_isready -U postgres"]
-          interval: 10s
-          timeout: 5s
-          retries: 5
-          start_period: 30s
-
-    - name: Wait for database to be ready
-      wait_for:
-        host: "{{ database_host_external }}"
-        port: "{{ database_port }}"
-        delay: 1
-        timeout: 60
-
-    - name: Deploy auth service container
-      containers.podman.podman_container:
-        name: "{{ auth_container_name }}"
-        image: shift-planning-auth
-        state: started
-        restart_policy: always
-        network: shift-planning-network
-        ports:
-          - "{{ auth_container_port }}:3100"
-        env:
-          # Database configuration
-          DATABASE_URL: "{{ vault_auth_database_url }}"
-          
-          # JWT configuration
-          JWT_ACCESS_SECRET: "{{ vault_jwt_access_secret }}"
-          JWT_REFRESH_SECRET: "{{ vault_jwt_refresh_secret }}"
-          JWT_ACCESS_EXPIRATION: "{{ jwt_access_expiration }}"
-          JWT_REFRESH_EXPIRATION: "{{ jwt_refresh_expiration }}"
-          
-          # Service configuration
-          PORT: "3100"
-          NODE_ENV: "production"
-          LOG_LEVEL: "{{ log_level }}"
-          
-          # Service URLs
-          GATEWAY_SERVICE_URL: "{{ gateway_service_url }}"
-          SCHEDULING_SERVICE_URL: "{{ scheduling_service_url }}"
-        healthcheck:
-          test: ["CMD-SHELL", "curl -f http://localhost:3100/health || exit 1"]
-          interval: 30s
-          timeout: 10s
-          retries: 3
-          start_period: 40s
-
-    - name: Deploy scheduling service container
-      containers.podman.podman_container:
-        name: "{{ scheduling_container_name }}"
-        image: shift-planning-scheduling
-        state: started
-        restart_policy: always
-        network: shift-planning-network
-        ports:
-          - "{{ scheduling_container_port }}:3200"
-        env:
-          # Database configuration
-          DATABASE_URL: "{{ vault_scheduling_database_url }}"
-          
-          # JWT configuration (for validating tokens from auth service)
-          JWT_ACCESS_SECRET: "{{ vault_jwt_access_secret }}"
-          JWT_REFRESH_SECRET: "{{ vault_jwt_refresh_secret }}"
-          
-          # Service configuration
-          PORT: "3200"
-          NODE_ENV: "production"
-          LOG_LEVEL: "{{ log_level }}"
-          
-          # Service URLs
-          AUTH_SERVICE_URL: "{{ auth_service_url }}"
-          GATEWAY_SERVICE_URL: "{{ gateway_service_url }}"
-          
-          # Scheduling specific configuration
-          SHIFT_LOG_RETENTION_DAYS: "{{ shift_log_retention_days }}"
-        healthcheck:
-          test: ["CMD-SHELL", "curl -f http://localhost:3200/health || exit 1"]
-          interval: 30s
-          timeout: 10s
-          retries: 3
-          start_period: 40s
-
-    - name: Deploy gateway service container
-      containers.podman.podman_container:
-        name: "{{ gateway_container_name }}"
-        image: shift-planning-gateway
-        state: started
-        restart_policy: always
-        network: shift-planning-network
-        ports:
-          - "{{ gateway_container_port }}:3000"
-        env:
-          # Service configuration
-          PORT: "3000"
-          NODE_ENV: "production"
-          LOG_LEVEL: "{{ log_level }}"
-          
-          # Backend service URLs
-          AUTH_SERVICE_URL: "{{ auth_service_url }}"
-          SCHEDULING_SERVICE_URL: "{{ scheduling_service_url }}"
-
-          # Frontend URL
-          FRONTEND_URL: "{{ front_end_url }}"
-          
-          # JWT configuration (for token validation)
-          JWT_ACCESS_SECRET: "{{ vault_jwt_access_secret }}"
-          JWT_REFRESH_SECRET: "{{ vault_jwt_refresh_secret }}"
-        healthcheck:
-          test: ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"]
-          interval: 30s
-          timeout: 10s
-          retries: 3
-          start_period: 40s
-
-    - name: Wait for all services to be ready
-      wait_for:
-        host: localhost
-        port: "{{ item }}"
-        delay: 1
-        timeout: 120
-      loop:
-        - "{{ auth_container_port }}"
-        - "{{ scheduling_container_port }}"
-        - "{{ gateway_container_port }}"
-
-    - name: Run Prisma migrations for scheduling
-      block:
-        - name: Run Prisma migration against database
-          command:
-            cmd: >
-              podman exec {{ scheduling_container_name }} npx prisma migrate deploy
-          environment:
-            DATABASE_URL: "{{ vault_scheduling_database_url_external }}"
-          register: migrate_result_scheduling
-          changed_when: migrate_result_scheduling.rc == 0
-
-        - name: Display migration result
-          debug:
-            msg: "Migration for scheduling service environment completed successfully"
-          when: migrate_result_scheduling.rc == 0
-
-      rescue:
-        - name: Display error message
-          debug:
-            msg: "Migration for scheduling service environment failed. Check the logs for more details."
-
-    - name: Run Prisma migrations for auth
-      block:
-        - name: Run Prisma migration against database
-          command:
-            cmd: >
-              podman exec {{ auth_container_name }} npx prisma migrate deploy
-          environment:
-            DATABASE_URL: "{{ vault_auth_database_url_external }}"
-          register: migrate_result_auth
-          changed_when: migrate_result_auth.rc == 0
-
-        - name: Display migration result
-          debug:
-            msg: "Migration for auth service environment completed successfully"
-          when: migrate_result_auth.rc == 0
-
-      rescue:
-        - name: Display error message
-          debug:
-            msg: "Migration for auth service environment failed. Check the logs for more details."
-
-    - name: Display deployment status
-      debug:
+    - name: Display deployment information
+      ansible.builtin.debug:
         msg: |
+          Deploying Shift Planning application using role-based architecture
+          Environment: {{ deployment_environment }}
+          Base path: {{ app_base_path }}
+
+- name: Setup Infrastructure
+  hosts: all
+  become: false
+  roles:
+    - role: podman_network
+      tags: ["infrastructure", "network"]
+
+    - role: database
+      tags: ["infrastructure", "database"]
+
+- name: Deploy Application Services
+  hosts: all
+  become: false
+  tasks:
+    - name: Deploy each application service
+      include_role:
+        name: app_service
+      vars:
+        service_config: "{{ item }}"
+      loop: "{{ app_services }}"
+      loop_control:
+        loop_var: item
+        label: "{{ item.name }}"
+      tags: ["services", "deploy"]
+
+- name: Display Deployment Summary
+  hosts: all
+  become: false
+  tasks:
+    - name: Show deployment status
+      ansible.builtin.debug:
+        msg: |
+          ================================================
           Shift Planning services deployed successfully!
-          
+          ================================================
+
           Services:
-          - Database: localhost:{{ database_port }} (with persistent storage)
-          - Auth Service: {{ auth_service_url }}
-          - Scheduling Service: {{ scheduling_service_url }}
-          - Gateway Service: {{ gateway_service_url }}
-          
+          - Database: {{ database_host_external }}:{{ database_port }} (with persistent storage)
+          - Gateway Service (EXPOSED): http://{{ external_hostname }}{% if app_services[0].port != 80 and app_services[0].port != 443 %}:{{ app_services[0].port }}{% endif %}
+
+          - Auth Service (INTERNAL): {{ app_services[1].container_name }}:{{ app_services[1].internal_port }}
+          - Scheduling Service (INTERNAL): {{ app_services[2].container_name }}:{{ app_services[2].internal_port }}
+
+          Security:
+          ✓ Only Gateway service is exposed to the host
+          ✓ Auth and Scheduling services are internal to Podman network
+          ✓ Database is exposed only for migrations (localhost:{{ database_port }})
+
           Database data is persisted in Podman volume: shift-planning-db-data
-          You can access the application at: {{ gateway_service_url }}
+          You can access the application at: http://{{ external_hostname }}{% if app_services[0].port != 80 and app_services[0].port != 443 %}:{{ app_services[0].port }}{% endif %}
+
+
+          Useful commands:
+          - View containers: podman ps
+          - View logs: podman logs <container_name>
+          - Restart service: podman restart <container_name>
+          - Access internal service logs: podman logs {{ app_services[1].container_name }}
+          - Check network: podman network inspect shift-planning-network

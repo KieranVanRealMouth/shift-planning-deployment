@@ -1,0 +1,122 @@
+---
+# Repository Validation Role
+# Validates that all required repositories are present and ready for deployment
+
+- name: Display validation start message
+  ansible.builtin.debug:
+    msg: "Validating repositories for deployment..."
+
+- name: Get list of required repositories
+  ansible.builtin.set_fact:
+    required_repos: "{{ repositories | selectattr('required_for_deployment', 'equalto', true) | list }}"
+
+- name: Check if required repositories exist
+  ansible.builtin.stat:
+    path: "{{ item.local_path }}"
+  register: repo_existence_check
+  loop: "{{ required_repos }}"
+  loop_control:
+    loop_var: item
+    label: "{{ item.name }}"
+
+- name: Check if repositories are git repositories
+  ansible.builtin.stat:
+    path: "{{ item.local_path }}/.git"
+  register: repo_git_check
+  loop: "{{ required_repos }}"
+  loop_control:
+    loop_var: item
+    label: "{{ item.name }}"
+
+- name: Check if Dockerfiles exist in service repositories
+  ansible.builtin.stat:
+    path: "{{ item.local_path }}/Dockerfile"
+  register: dockerfile_check
+  loop: "{{ required_repos }}"
+  loop_control:
+    loop_var: item
+    label: "{{ item.name }}"
+  when: item.name in ['auth', 'gateway', 'scheduling']
+
+- name: Build validation results
+  ansible.builtin.set_fact:
+    validation_results: []
+
+- name: Compile validation results
+  ansible.builtin.set_fact:
+    validation_results: "{{ validation_results + [{'name': item.item.name, 'path': item.item.local_path, 'exists': item.stat.exists, 'is_git': repo_git_check.results[idx].stat.exists if item.stat.exists else false, 'has_dockerfile': dockerfile_check.results[idx].stat.exists if item.item.name in ['auth', 'gateway', 'scheduling'] and item.stat.exists else true}] }}"
+  loop: "{{ repo_existence_check.results }}"
+  loop_control:
+    loop_var: item
+    index_var: idx
+    label: "{{ item.item.name }}"
+
+- name: Display validation results
+  ansible.builtin.debug:
+    msg: |
+      Repository Validation Results:
+      {% for result in validation_results %}
+      - {{ result.name }}:
+        Path: {{ result.path }}
+        Exists: {{ '✓' if result.exists else '✗' }}
+        Is Git Repo: {{ '✓' if result.is_git else '✗' }}
+        {% if result.name in ['auth', 'gateway', 'scheduling'] %}Has Dockerfile: {{ '✓' if result.has_dockerfile else '✗' }}{% endif %}
+      {% endfor %}
+
+- name: Check for missing repositories
+  ansible.builtin.set_fact:
+    missing_repos: "{{ validation_results | selectattr('exists', 'equalto', false) | list }}"
+
+- name: Check for repositories without .git directory
+  ansible.builtin.set_fact:
+    non_git_repos: "{{ validation_results | selectattr('exists', 'equalto', true) | selectattr('is_git', 'equalto', false) | list }}"
+
+- name: Check for repositories without Dockerfile
+  ansible.builtin.set_fact:
+    missing_dockerfiles: "{{ validation_results | selectattr('exists', 'equalto', true) | selectattr('has_dockerfile', 'equalto', false) | list }}"
+
+- name: Fail if repositories are missing
+  ansible.builtin.fail:
+    msg: |
+      ❌ VALIDATION FAILED: Missing required repositories
+
+      The following required repositories are missing:
+      {% for repo in missing_repos %}
+      - {{ repo.name }}: {{ repo.path }}
+      {% endfor %}
+
+      Please ensure all repositories are cloned before deployment.
+      Run: ansible-playbook playbooks/manage-repositories.yml -i inventories/{{ deployment_environment }}/hosts.yml
+  when: missing_repos | length > 0
+
+- name: Fail if repositories are not git repositories
+  ansible.builtin.fail:
+    msg: |
+      ❌ VALIDATION FAILED: Invalid repository structure
+
+      The following directories exist but are not git repositories:
+      {% for repo in non_git_repos %}
+      - {{ repo.name }}: {{ repo.path }}
+      {% endfor %}
+
+      Please ensure these are valid git repositories.
+  when: non_git_repos | length > 0
+
+- name: Fail if Dockerfiles are missing
+  ansible.builtin.fail:
+    msg: |
+      ❌ VALIDATION FAILED: Missing Dockerfiles
+
+      The following service repositories are missing Dockerfiles:
+      {% for repo in missing_dockerfiles %}
+      - {{ repo.name }}: {{ repo.path }}/Dockerfile
+      {% endfor %}
+
+      Please ensure all service repositories contain a Dockerfile.
+  when: missing_dockerfiles | length > 0
+
+- name: Display validation success message
+  ansible.builtin.debug:
+    msg: |
+      ✓ All repository validations passed!
+      All required repositories are present and ready for deployment.

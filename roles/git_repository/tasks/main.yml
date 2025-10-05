@@ -1,0 +1,175 @@
+---
+# Git repository setup role - configures SSH keys and clones/pulls repository
+# This role can be used in two modes:
+# 1. SSH setup mode: Run once to configure SSH keys (when repo_config is not defined)
+# 2. Repository management mode: Clone/pull a specific repository (when repo_config is defined)
+
+# ============================================================================
+# SSH KEY SETUP (One-time prerequisite)
+# ============================================================================
+- name: SSH Key Setup
+  when: repo_config is not defined
+  tags: ["git", "ssh", "ssh-setup"]
+  block:
+    - name: Ensure .ssh directory exists
+      ansible.builtin.file:
+        path: "{{ ssh_dir }}"
+        state: directory
+        mode: "0700"
+
+    - name: Generate SSH key for GitHub
+      ansible.builtin.command:
+        cmd: ssh-keygen -t ed25519 -f {{ ssh_key_path }} -N ""
+      args:
+        creates: "{{ ssh_key_path }}"
+
+    - name: Set correct permissions on SSH private key
+      ansible.builtin.file:
+        path: "{{ ssh_key_path }}"
+        mode: "0600"
+        owner: root
+        group: root
+
+    - name: Set correct permissions on SSH public key
+      ansible.builtin.file:
+        path: "{{ ssh_key_path }}.pub"
+        mode: "0644"
+        owner: root
+        group: root
+
+    - name: Configure Git user name
+      ansible.builtin.git_config:
+        name: user.name
+        scope: global
+        value: "{{ git_user_name }}"
+
+    - name: Configure Git user email
+      ansible.builtin.git_config:
+        name: user.email
+        scope: global
+        value: "{{ git_user_email }}"
+
+    - name: Display public SSH key
+      ansible.builtin.command:
+        cmd: cat {{ ssh_key_path }}.pub
+      register: public_key
+      changed_when: false
+
+    - name: Show public SSH key
+      ansible.builtin.debug:
+        msg:
+          - "=== GITHUB DEPLOY KEY SETUP ==="
+          - "Please add the following public key to your GitHub repository's deploy keys:"
+          - "Settings -> Deploy keys -> Add deploy key"
+          - "Title: VPS Deploy Key ({{ ansible_hostname }})"
+          - "Key: {{ public_key.stdout }}"
+          - "✓ Allow write access: NO (read-only is sufficient for deployments)"
+          - "================================"
+
+    - name: Extract Git hostname from first repository URL
+      ansible.builtin.set_fact:
+        git_hostname: "{{ repositories[0].git_url | regex_replace('^(https?://|git@)([^/:]+).*', '\\2') }}"
+      when: repositories is defined and repositories | length > 0
+
+    - name: Configure SSH to use the key for GitHub
+      ansible.builtin.blockinfile:
+        path: "{{ ssh_config_path }}"
+        create: yes
+        mode: "0600"
+        marker: "# {mark} ANSIBLE MANAGED BLOCK - {{ git_hostname }}"
+        block: |
+          Host {{ git_hostname }}
+            IdentityFile {{ ssh_key_path }}
+            StrictHostKeyChecking no
+            User git
+      when: git_hostname is defined
+
+    - name: Test SSH connection to GitHub
+      ansible.builtin.command:
+        cmd: ssh -T git@{{ git_hostname }}
+      register: ssh_test
+      failed_when: ssh_test.rc not in [0, 1] # GitHub returns 1 on successful auth
+      changed_when: false
+      when: git_hostname is defined
+
+    - name: Display SSH connection test result
+      ansible.builtin.debug:
+        msg:
+          - "SSH Connection Test Result:"
+          - "{{ ssh_test.stderr if ssh_test.stderr else ssh_test.stdout }}"
+          - "Note: If you see 'successfully authenticated' message, SSH is working!"
+      when: git_hostname is defined and ssh_test is defined
+
+# ============================================================================
+# REPOSITORY MANAGEMENT (Clone/Pull specific repository)
+# ============================================================================
+- name: Repository Management
+  when: repo_config is defined
+  tags: ["git", "clone", "pull", "repo-management"]
+  block:
+    - name: Validate repository configuration
+      ansible.builtin.assert:
+        that:
+          - repo_config.name is defined
+          - repo_config.git_url is defined
+          - repo_config.local_path is defined
+          - repo_config.branch is defined
+        fail_msg: "Repository configuration must include: name, git_url, local_path, and branch"
+
+    - name: Display repository operation start
+      ansible.builtin.debug:
+        msg: "Managing repository: {{ repo_config.name }} ({{ repo_config.git_url }})"
+
+    - name: Check if git repository already exists
+      ansible.builtin.stat:
+        path: "{{ repo_config.local_path }}/.git"
+      register: git_dir
+
+    - name: Clone Git repository (if not exists)
+      when: not git_dir.stat.exists
+      block:
+        - name: Ensure parent directory exists
+          ansible.builtin.file:
+            path: "{{ repo_config.local_path | dirname }}"
+            state: directory
+            mode: "0755"
+            owner: root
+            group: root
+
+        - name: Clone Git repository
+          ansible.builtin.git:
+            repo: "{{ repo_config.git_url }}"
+            dest: "{{ repo_config.local_path }}"
+            version: "{{ repo_config.branch }}"
+            force: no
+          register: git_clone_result
+
+        - name: Set correct ownership of cloned repository
+          ansible.builtin.file:
+            path: "{{ repo_config.local_path }}"
+            owner: root
+            group: root
+            recurse: yes
+
+        - name: Display clone result
+          ansible.builtin.debug:
+            msg: "✓ Repository '{{ repo_config.name }}' cloned successfully to {{ repo_config.local_path }}"
+
+    - name: Pull latest changes (if repository exists)
+      ansible.builtin.git:
+        repo: "{{ repo_config.git_url }}"
+        dest: "{{ repo_config.local_path }}"
+        version: "{{ repo_config.branch }}"
+        force: no
+        update: yes
+      register: git_pull_result
+      when: git_dir.stat.exists
+
+    - name: Display pull result
+      ansible.builtin.debug:
+        msg: "✓ Repository '{{ repo_config.name }}' updated ({{ 'changes detected' if git_pull_result.changed else 'already up to date' }})"
+      when: git_dir.stat.exists
+
+    - name: Display git operation status
+      ansible.builtin.debug:
+        msg: "✓ Repository '{{ repo_config.name }}' is ready at {{ repo_config.local_path }}"

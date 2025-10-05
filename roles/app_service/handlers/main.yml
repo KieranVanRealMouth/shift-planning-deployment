@@ -1,0 +1,7 @@
+---
+# Handlers for app_service role
+
+- name: restart service
+  containers.podman.podman_container:
+    name: "{{ service_config.container_name }}"
+    state: restarted

@@ -1,0 +1,121 @@
+---
+# Repository Management Playbook
+# Manages multiple Git repositories for the Shift Planning application
+# Supports selective cloning/pulling based on deployment requirements
+
+- name: Repository Management
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Display repository management start message
+      debug:
+        msg: |
+          Starting repository management...
+          Environment: {{ deployment_environment }}
+          Base path: {{ app_base_path }}
+
+- name: Setup SSH Keys for Git (One-time prerequisite)
+  hosts: all
+  become: yes
+  tasks:
+    - name: Check if running on VPS (not local development)
+      ansible.builtin.set_fact:
+        is_vps_environment: "{{ deployment_environment != 'local' }}"
+
+    - name: Setup SSH keys for Git access
+      include_role:
+        name: git_repository
+      when: is_vps_environment
+      tags: ["ssh-setup", "git"]
+
+- name: Manage Git Repositories
+  hosts: all
+  become: yes
+  tasks:
+    - name: Check if running on VPS (not local development)
+      ansible.builtin.set_fact:
+        is_vps_environment: "{{ deployment_environment != 'local' }}"
+      tags: ["always"]
+
+    - name: Determine which repositories to manage
+      ansible.builtin.set_fact:
+        repos_to_manage: "{{ repositories | selectattr('required_for_deployment', 'equalto', true) | list if deployment_repos_only | default(false) else repositories }}"
+      tags: ["always"]
+
+    - name: Display repositories to be managed
+      ansible.builtin.debug:
+        msg: |
+          Managing {{ repos_to_manage | length }} repositories:
+          {% for repo in repos_to_manage %}
+          - {{ repo.name }} ({{ repo.branch }}){% if repo.required_for_deployment %} [REQUIRED]{% endif %}
+          {% endfor %}
+      tags: ["clone", "pull", "repo-management", "verify"]
+
+    - name: Clone/Pull each repository
+      include_role:
+        name: git_repository
+      vars:
+        repo_config: "{{ item }}"
+      loop: "{{ repos_to_manage }}"
+      loop_control:
+        loop_var: item
+        label: "{{ item.name }}"
+      when: is_vps_environment
+      tags: ["clone", "pull", "repo-management"]
+
+    - name: Verify repositories exist (local development)
+      ansible.builtin.stat:
+        path: "{{ item.local_path }}"
+      register: local_repo_check
+      loop: "{{ repos_to_manage }}"
+      loop_control:
+        loop_var: item
+        label: "{{ item.name }}"
+      when: not is_vps_environment
+      tags: ["verify"]
+
+    - name: Display local repository verification results
+      ansible.builtin.debug:
+        msg: |
+          Local repository verification:
+          {% for result in local_repo_check.results %}
+          - {{ result.item.name }}: {{ 'EXISTS' if result.stat.exists else 'MISSING' }}
+          {% endfor %}
+      when: not is_vps_environment and local_repo_check is defined
+      tags: ["verify"]
+
+    - name: Fail if required repositories are missing (local development)
+      ansible.builtin.fail:
+        msg: "Required repository '{{ item.item.name }}' is missing at {{ item.item.local_path }}"
+      when:
+        - not is_vps_environment
+        - not item.stat.exists
+        - item.item.required_for_deployment
+      loop: "{{ local_repo_check.results }}"
+      loop_control:
+        loop_var: item
+        label: "{{ item.item.name }}"
+      tags: ["verify"]
+
+- name: Post-management tasks
+  hosts: localhost
+  gather_facts: false
+  tasks:
+    - name: Display completion message
+      debug:
+        msg: |
+          ================================================
+          Repository management completed successfully!
+          ================================================
+
+          Environment: {{ deployment_environment }}
+
+          All repositories are ready for deployment.
+
+          Available tags:
+          - --tags "ssh-setup"        : Only setup SSH keys
+          - --tags "repo-management"  : Only clone/pull repositories
+          - --tags "verify"           : Only verify repositories exist
+
+          Additional options:
+          - -e "deployment_repos_only=true" : Only manage repositories required for deployment

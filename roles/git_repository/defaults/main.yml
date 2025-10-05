@@ -1,0 +1,15 @@
+---
+# Default values for git_repository role
+
+# SSH key configuration
+ssh_key_path: /root/.ssh/id_ed25519_github
+ssh_config_path: /root/.ssh/config
+ssh_dir: /root/.ssh
+
+# Git configuration (should be overridden from group_vars)
+git_repo: ""
+git_user_name: "Ansible Deployment"
+git_user_email: "deployment@example.com"
+
+# Repository paths
+app_base_path: ""

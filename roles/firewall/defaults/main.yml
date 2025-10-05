@@ -1,0 +1,13 @@
+---
+# Default values for firewall role
+
+# Default ports to open (can be overridden from group_vars)
+firewalld_ports:
+  - 80
+  - 443
+  - 22
+
+# Python packages required for firewalld
+firewalld_packages:
+  - firewalld
+  - python3-dbus

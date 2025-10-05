@@ -1,0 +1,5 @@
+---
+# Default values for podman_network role
+
+network_name: shift-planning-network
+network_state: present

@@ -1,0 +1,12 @@
+---
+# Handlers for haproxy role
+
+- name: restart haproxy
+  ansible.builtin.systemd:
+    name: haproxy
+    state: restarted
+
+- name: reload haproxy
+  ansible.builtin.systemd:
+    name: haproxy
+    state: reloaded

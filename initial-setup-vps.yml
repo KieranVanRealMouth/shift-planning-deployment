@@ -1,7 +1,6 @@
 ---
-# Main site playbook for Shift Planning deployment
-# Entry point that orchestrates the deployment of all services
-# This design enables future scaling to multi-node deployments
+# VPS initial setup playbook for Shift Planning deployment
+# Uses role-based architecture for clean, maintainable infrastructure setup
 
 - name: Setup VPS
   hosts: localhost
@@ -11,10 +10,28 @@
       debug:
         msg: |
           Starting VPS setup for Shift Planning...
+          This will install system packages, configure SSH, and clone the repository.
 
-- import_playbook: playbooks/setup-vps.yml
+- name: Configure VPS System and Infrastructure
+  hosts: all
+  become: yes
+  roles:
+    - role: vps_setup
+      tags: ["vps_setup", "packages"]
 
-- name: Post-deployment tasks
+    - role: firewall
+      tags: ["vps_setup", "firewall"]
+
+- name: Setup Git SSH Keys
+  hosts: all
+  become: yes
+  tasks:
+    - name: Setup SSH keys for Git access
+      include_role:
+        name: git_repository
+      tags: ["vps_setup", "git", "ssh-setup"]
+
+- name: Post-setup tasks
   hosts: localhost
   gather_facts: false
   tasks:
@@ -25,7 +42,31 @@
           VPS setup for Shift Planning completed successfully!
           ================================================
 
-          Next steps:
-          1. SSH into VPS
-          2. Change password
-          3. 1x Rsync
+          Completed tasks:
+          ✓ System packages installed (Podman, Node.js, Git, HAProxy, Firewalld)
+          ✓ SSH keys configured for Git repository access
+          ✓ Firewall configured
+
+          ⚠️  IMPORTANT: Next steps required before deployment:
+
+          1. Add the SSH public key to GitHub:
+             - Go to each repository's Settings -> Deploy keys -> Add deploy key
+             - Copy the public key shown above
+             - Title: VPS Deploy Key ({{ ansible_hostname | default('vps') }})
+             - Paste the key and save
+             - Read-only access is sufficient
+
+          2. Clone all repositories:
+             ansible-playbook playbooks/manage-repositories.yml -i inventories/{{ deployment_environment }}/hosts.yml
+
+          3. Deploy HAProxy (optional):
+             ansible-playbook deploy-haproxy.yml -i inventories/{{ deployment_environment }}/hosts.yml --ask-vault-pass
+
+          4. Deploy application services:
+             ansible-playbook deploy-services.yml -i inventories/{{ deployment_environment }}/hosts.yml --ask-vault-pass
+
+          Available tags:
+          - --tags "vps_setup"  : Run all VPS setup tasks
+          - --tags "packages"   : Only install system packages
+          - --tags "ssh-setup"  : Only setup SSH keys
+          - --tags "firewall"   : Only configure firewall

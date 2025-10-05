@@ -1,0 +1,166 @@
+---
+# ============================================================================
+# GLOBAL CONFIGURATION
+# ============================================================================
+# Only truly shared variables that are used across multiple services or in vault.yml
+
+# Environment Configuration
+deployment_environment: "prod" # Environment name: dev, local, or prod
+app_base_path: "/home/rocky/shift-planning"
+external_hostname: "shiftplanning.rowanvi.nl" # Public hostname for this environment
+
+# Repository Configuration
+# For VPS deployment, repositories will be cloned/pulled from GitHub
+repositories:
+  - name: auth
+    git_url: "git@github.com:KieranVanRealMouth/shift-planning-auth.git"
+    local_path: "{{ app_base_path }}/shift-planning-auth"
+    required_for_deployment: true
+    branch: main
+
+  - name: database
+    git_url: "git@github.com:KieranVanRealMouth/shift-planning-database.git"
+    local_path: "{{ app_base_path }}/shift-planning-database"
+    required_for_deployment: true
+    branch: main
+
+  - name: gateway
+    git_url: "git@github.com:KieranVanRealMouth/shift-planning-gateway.git"
+    local_path: "{{ app_base_path }}/shift-planning-gateway"
+    required_for_deployment: true
+    branch: main
+
+  - name: scheduling
+    git_url: "git@github.com:KieranVanRealMouth/shift-planning-scheduling.git"
+    local_path: "{{ app_base_path }}/shift-planning-scheduling"
+    required_for_deployment: true
+    branch: main
+
+  - name: front-end
+    git_url: "git@github.com:KieranVanRealMouth/shift-planning-front-end.git"
+    local_path: "{{ app_base_path }}/shift-planning-front-end"
+    required_for_deployment: false
+    branch: main
+
+  - name: docs
+    git_url: "git@github.com:KieranVanRealMouth/shift-planning-docs.git"
+    local_path: "{{ app_base_path }}/shift-planning-docs"
+    required_for_deployment: false
+    branch: main
+
+  - name: deployment
+    git_url: "git@github.com:KieranVanRealMouth/shift-planning-deployment.git"
+    local_path: "{{ app_base_path }}/shift-planning-deployment"
+    required_for_deployment: false
+    branch: main
+
+# Database Configuration (used in vault.yml and database role)
+database_host: "sp-database"
+database_host_external: "localhost"
+database_port: 5432
+database_path: "{{ app_base_path }}/shift-planning-database"
+auth_database_name: "auth_db"
+auth_database_schema: "public"
+scheduling_database_name: "scheduling_db"
+scheduling_database_schema: "public"
+
+# JWT Configuration (used in auth service)
+jwt_access_expiration: 3600 # 1 hour
+jwt_refresh_expiration: 43200 # 12 hours
+
+# Logging Configuration (used in all services)
+log_level: "warn"
+
+# Git Configuration (used in git_repository role)
+git_repo: "git@github.com:KieranVanRealMouth/shift-planning-back-end.git"
+git_user_name: "Ansible Deployment"
+git_user_email: "deployment@example.com"
+
+# ============================================================================
+# APPLICATION SERVICES CONFIGURATION
+# ============================================================================
+# Each service contains all its specific configuration inline
+
+app_services:
+  # Gateway Service - Main entry point for all client requests
+  # This is the ONLY service exposed to the host
+  - name: gateway
+    image_name: shift-planning-gateway
+    container_name: sp-gateway
+    path: "{{ app_base_path }}/shift-planning-gateway"
+    port: 3000
+    internal_port: 3000
+    expose_port: true # Exposed to host
+    needs_migration: false
+    env:
+      PORT: "3000"
+      NODE_ENV: "production"
+      LOG_LEVEL: "{{ log_level }}"
+      AUTH_SERVICE_URL: "http://sp-auth:3100"
+      SCHEDULING_SERVICE_URL: "http://sp-scheduling:3200"
+      FRONTEND_URL: "https://{{ external_hostname }}"
+      JWT_ACCESS_SECRET: "{{ vault_jwt_access_secret }}"
+      JWT_REFRESH_SECRET: "{{ vault_jwt_refresh_secret }}"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Auth Service - Authentication and user management
+  # Internal only - accessible via Podman network
+  - name: auth
+    image_name: shift-planning-auth
+    container_name: sp-auth
+    path: "{{ app_base_path }}/shift-planning-auth"
+    internal_port: 3100
+    expose_port: false # Internal only
+    startup_wait: 10
+    needs_migration: true
+    migration_db_url: "{{ vault_auth_database_url_external }}"
+    env:
+      DATABASE_URL: "{{ vault_auth_database_url }}"
+      JWT_ACCESS_SECRET: "{{ vault_jwt_access_secret }}"
+      JWT_REFRESH_SECRET: "{{ vault_jwt_refresh_secret }}"
+      JWT_ACCESS_EXPIRATION: "{{ jwt_access_expiration }}"
+      JWT_REFRESH_EXPIRATION: "{{ jwt_refresh_expiration }}"
+      PORT: "3100"
+      NODE_ENV: "production"
+      LOG_LEVEL: "{{ log_level }}"
+      GATEWAY_SERVICE_URL: "http://sp-gateway:3000"
+      SCHEDULING_SERVICE_URL: "http://sp-scheduling:3200"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3100/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Scheduling Service - Core business logic for shifts and scheduling
+  # Internal only - accessible via Podman network
+  - name: scheduling
+    image_name: shift-planning-scheduling
+    container_name: sp-scheduling
+    path: "{{ app_base_path }}/shift-planning-scheduling"
+    internal_port: 3200
+    expose_port: false # Internal only
+    startup_wait: 10
+    needs_migration: true
+    migration_db_url: "{{ vault_scheduling_database_url_external }}"
+    env:
+      DATABASE_URL: "{{ vault_scheduling_database_url }}"
+      JWT_ACCESS_SECRET: "{{ vault_jwt_access_secret }}"
+      JWT_REFRESH_SECRET: "{{ vault_jwt_refresh_secret }}"
+      PORT: "3200"
+      NODE_ENV: "production"
+      LOG_LEVEL: "{{ log_level }}"
+      AUTH_SERVICE_URL: "http://sp-auth:3100"
+      GATEWAY_SERVICE_URL: "http://sp-gateway:3000"
+      SHIFT_LOG_RETENTION_DAYS: "90"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3200/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s

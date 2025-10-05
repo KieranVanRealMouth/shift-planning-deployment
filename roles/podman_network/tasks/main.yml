@@ -1,0 +1,20 @@
+---
+# Podman network setup role
+
+- name: Ensure Podman is available
+  command: podman --version
+  register: podman_check
+  failed_when: podman_check.rc != 0
+  changed_when: false
+  tags: ["infrastructure", "network"]
+
+- name: Create Podman network for services
+  containers.podman.podman_network:
+    name: "{{ network_name }}"
+    state: "{{ network_state }}"
+  tags: ["infrastructure", "network"]
+
+- name: Display network creation status
+  ansible.builtin.debug:
+    msg: "Podman network '{{ network_name }}' is ready"
+  tags: ["infrastructure", "network"]

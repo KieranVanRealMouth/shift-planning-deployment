@@ -1,7 +1,6 @@
 ---
-# Main site playbook for Shift Planning deployment
-# Entry point that orchestrates the deployment of all services
-# This design enables future scaling to multi-node deployments
+# Main deployment playbook for Shift Planning application
+# Uses role-based architecture with loops for scalable service deployment
 
 - name: Shift Planning Application Deployment
   hosts: localhost
@@ -11,10 +10,43 @@
       debug:
         msg: |
           Starting Shift Planning application deployment...
-          Target environment: {{ inventory_dir | basename }}
-          Deployment type: Single-node
+          Target environment: {{ deployment_environment }}
+          Deployment type: Single-node with role-based architecture
 
-- import_playbook: playbooks/single-node.yml
+          Note: This playbook deploys the current code in the repositories.
+          To update repositories first, run: ansible-playbook playbooks/manage-repositories.yml
+
+- name: Validate Repositories
+  hosts: all
+  become: yes
+  roles:
+    - role: repository_validation
+      tags: ["validation", "infrastructure", "services"]
+
+- name: Deploy Infrastructure Components
+  hosts: all
+  become: yes
+  roles:
+    - role: podman_network
+      tags: ["infrastructure", "network"]
+
+    - role: database
+      tags: ["infrastructure", "database"]
+
+- name: Deploy Application Services
+  hosts: all
+  become: yes
+  tasks:
+    - name: Deploy each application service using generic role
+      include_role:
+        name: app_service
+      vars:
+        service_config: "{{ item }}"
+      loop: "{{ app_services }}"
+      loop_control:
+        loop_var: item
+        label: "{{ item.name }}"
+      tags: ["services", "deploy"]
 
 - name: Post-deployment tasks
   hosts: localhost
@@ -26,37 +58,57 @@
           ================================================
           Shift Planning deployment completed successfully!
           ================================================
-          
-          Environment: {{ inventory_dir | basename }}
-          
+
+          Environment: {{ deployment_environment }}
+
           Service endpoints:
-          - Gateway (Main entry point): {{ gateway_service_url }}
-          - Auth Service: {{ auth_service_url }}
-          - Scheduling Service: {{ scheduling_service_url }}
-          - Database: {{ database_host }}:{{ database_port }}
-          
+          - Gateway (EXPOSED): http://{{ external_hostname }}{% if app_services[0].port != 80 and app_services[0].port != 443 %}:{{ app_services[0].port }}{% endif %}
+
+          - Auth Service (INTERNAL): {{ app_services[1].container_name }}:{{ app_services[1].internal_port }}
+          - Scheduling Service (INTERNAL): {{ app_services[2].container_name }}:{{ app_services[2].internal_port }}
+          - Database (INTERNAL): {{ database_host }}:{{ database_port }}
+
           Container names:
-          - Gateway: {{ gateway_container_name }}
-          - Auth: {{ auth_container_name }}
-          - Scheduling: {{ scheduling_container_name }}
+          - Gateway: {{ app_services[0].container_name }}
+          - Auth: {{ app_services[1].container_name }}
+          - Scheduling: {{ app_services[2].container_name }}
           - Database: sp-database (with persistent volume: shift-planning-db-data)
-          
+
+          Security:
+          ✓ Only Gateway service is exposed to the host
+          ✓ Auth and Scheduling services are internal to Podman network
+
           Next steps:
           1. Verify services are running: podman ps
           2. Check logs if needed: podman logs <container_name>
-          3. Access the application at: {{ gateway_service_url }}
-          
+          3. Access the application at: http://{{ external_hostname }}{% if app_services[0].port != 80 and app_services[0].port != 443 %}:{{ app_services[0].port }}{% endif %}
+
           Management commands:
-          - Stop all services: podman stop {{ gateway_container_name }} {{ scheduling_container_name }} {{ auth_container_name }} sp-database
-          - Remove containers: podman rm {{ gateway_container_name }} {{ scheduling_container_name }} {{ auth_container_name }} sp-database
+          - Stop all services: podman stop {{ app_services[0].container_name }} {{ app_services[1].container_name }} {{ app_services[2].container_name }} sp-database
+          - Remove containers: podman rm {{ app_services[0].container_name }} {{ app_services[1].container_name }} {{ app_services[2].container_name }} sp-database
           - List volumes: podman volume ls
           - Remove volume (WARNING: deletes all data): podman volume rm shift-planning-db-data
+
+          Deployment tags available:
+          - --tags "infrastructure" : Deploy only infrastructure (network, database)
+          - --tags "services"       : Deploy only application services
+          - --tags "build"          : Only build images
+          - --tags "validation"     : Only validate repositories
+          - --skip-tags "migrations": Skip database migrations
+          - --skip-tags "validation": Skip repository validation
+
+          To update repositories before deployment:
+          ansible-playbook playbooks/manage-repositories.yml -i inventories/{{ deployment_environment }}/hosts.yml
 
 - name: Show containers
   hosts: localhost
   gather_facts: false
   tasks:
-    - name: Show containers
+    - name: Show running containers
       command: podman ps
       register: containers
       changed_when: false
+
+    - name: Display container list
+      debug:
+        msg: "{{ containers.stdout_lines }}"

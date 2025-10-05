@@ -1,0 +1,22 @@
+# Ansible vault password files
+vault_passwords/dev
+vault_passwords/local
+vault_passwords/prod
+
+# Ansible retry files
+*.retry
+
+# Temporary files
+*.tmp
+*.bak
+*~
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db

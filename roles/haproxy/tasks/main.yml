@@ -1,0 +1,37 @@
+---
+# HAProxy setup role
+
+- name: Ensure HAProxy is installed
+  ansible.builtin.dnf:
+    name: haproxy
+    state: present
+  tags: ["infrastructure", "haproxy"]
+
+- name: Deploy HAProxy configuration
+  ansible.builtin.template:
+    src: "{{ haproxy_template }}"
+    dest: "{{ haproxy_config_path }}"
+    owner: root
+    group: root
+    mode: "0644"
+    backup: yes
+  notify: restart haproxy
+  tags: ["infrastructure", "haproxy", "config"]
+
+- name: Validate HAProxy configuration
+  ansible.builtin.command: haproxy -c -f {{ haproxy_config_path }}
+  register: haproxy_validation
+  changed_when: false
+  tags: ["infrastructure", "haproxy", "config"]
+
+- name: Start and enable HAProxy
+  ansible.builtin.systemd:
+    name: haproxy
+    state: started
+    enabled: yes
+  tags: ["infrastructure", "haproxy"]
+
+- name: Display HAProxy status
+  ansible.builtin.debug:
+    msg: "HAProxy configured and running. Stats available at http://localhost:{{ haproxy_stats_port }}/stats"
+  tags: ["infrastructure", "haproxy"]

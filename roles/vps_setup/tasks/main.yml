@@ -1,0 +1,76 @@
+---
+# VPS setup role - installs and configures system packages
+
+- name: Update all packages
+  ansible.builtin.dnf:
+    name: "*"
+    state: latest
+  tags: ["vps_setup", "packages"]
+
+- name: Install Python and required packages
+  dnf:
+    name: "{{ python_packages }}"
+    state: present
+  tags: ["vps_setup", "packages"]
+
+- name: Enable NodeJS stream
+  dnf:
+    name: "{{ nodejs_stream }}"
+    state: present
+  tags: ["vps_setup", "packages"]
+
+- name: Install required Python packages (packaging, psycopg2-binary)
+  ansible.builtin.shell: |
+    python3 -m pip install --upgrade pip
+    python3 -m pip install packaging psycopg2-binary
+  tags: ["vps_setup", "packages"]
+
+- name: Install SELinux required packages
+  dnf:
+    name: "{{ selinux_packages }}"
+    state: present
+  tags: ["vps_setup", "packages"]
+
+- name: Install system packages
+  ansible.builtin.dnf:
+    name: "{{ system_packages }}"
+    state: present
+  tags: ["vps_setup", "packages"]
+
+- name: Ensure HAProxy socket directory exists with correct permissions
+  ansible.builtin.file:
+    path: "{{ haproxy_socket_dir }}"
+    state: directory
+    owner: "{{ haproxy_user }}"
+    group: "{{ haproxy_group }}"
+    mode: "0755"
+  tags: ["vps_setup", "haproxy"]
+
+- name: Verify semanage is working
+  ansible.builtin.command: semanage --help
+  register: semanage_check
+  ignore_errors: yes
+  changed_when: false
+  tags: ["vps_setup", "selinux"]
+
+- name: Debug semanage availability
+  ansible.builtin.debug:
+    msg: "semanage check result: {{ semanage_check }}"
+  when: semanage_check.failed
+  tags: ["vps_setup", "selinux"]
+
+- name: Set correct SELinux context for HAProxy socket directory
+  ansible.builtin.command: semanage fcontext -a -t haproxy_var_run_t "/var/run/haproxy(/.*)?"
+  ignore_errors: yes
+  when: not semanage_check.failed
+  tags: ["vps_setup", "selinux"]
+
+- name: Apply SELinux context to HAProxy socket directory
+  ansible.builtin.command: restorecon -Rv /var/run/haproxy
+  when: not semanage_check.failed
+  tags: ["vps_setup", "selinux"]
+
+- name: Display VPS setup completion
+  ansible.builtin.debug:
+    msg: "VPS system packages and configuration completed successfully"
+  tags: ["vps_setup"]

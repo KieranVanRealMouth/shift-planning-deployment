@@ -1,0 +1,22 @@
+---
+# Default values for app_service role
+# These can be overridden when calling the role
+
+# Service configuration (must be provided when calling the role)
+service_config: {}
+
+# Default network name
+podman_network_name: shift-planning-network
+
+# Default restart policy
+restart_policy: always
+
+# Default healthcheck settings
+default_healthcheck_interval: 30s
+default_healthcheck_timeout: 10s
+default_healthcheck_retries: 3
+default_healthcheck_start_period: 40s
+
+# Wait for service settings
+wait_for_delay: 1
+wait_for_timeout: 120

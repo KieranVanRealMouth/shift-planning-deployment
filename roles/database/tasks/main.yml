@@ -1,0 +1,61 @@
+---
+# Database deployment role
+
+- name: Create Podman volume for database persistence
+  containers.podman.podman_volume:
+    name: "{{ database_volume_name }}"
+    state: present
+  tags: ["infrastructure", "database"]
+
+- name: Build database image
+  containers.podman.podman_image:
+    name: "{{ database_image_name }}"
+    path: "{{ database_path }}"
+    build:
+      file: "{{ database_path }}/Dockerfile"
+    state: present
+    force: true
+  tags: ["infrastructure", "database", "build"]
+
+- name: Stop and remove existing database container
+  containers.podman.podman_container:
+    name: "{{ database_container_name }}"
+    state: absent
+  ignore_errors: true
+  tags: ["infrastructure", "database"]
+
+- name: Deploy database container
+  containers.podman.podman_container:
+    name: "{{ database_container_name }}"
+    image: "{{ database_image_name }}"
+    state: started
+    restart_policy: always
+    network: "{{ podman_network_name }}"
+    ports:
+      - "{{ database_port }}:{{ database_internal_port }}"
+    volumes:
+      - "{{ database_volume_name }}:/var/lib/postgresql/data:Z"
+    env:
+      POSTGRES_DB: "{{ postgres_db }}"
+      POSTGRES_USER: "{{ postgres_user }}"
+      POSTGRES_PASSWORD: "{{ postgres_password }}"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U {{ postgres_user }}"]
+      interval: "{{ healthcheck_interval }}"
+      timeout: "{{ healthcheck_timeout }}"
+      retries: "{{ healthcheck_retries }}"
+      start_period: "{{ healthcheck_start_period }}"
+  tags: ["infrastructure", "database"]
+
+- name: Wait for database to be ready
+  wait_for:
+    host: "{{ ansible_host | default(database_host_external) }}"
+    port: "{{ database_port }}"
+    delay: "{{ wait_for_delay }}"
+    timeout: "{{ wait_for_timeout }}"
+  tags: ["infrastructure", "database"]
+
+- name: Display database deployment status
+  ansible.builtin.debug:
+    msg: "Database deployed successfully at {{ database_host_external }}:{{ database_port }}"
+  tags: ["infrastructure", "database"]

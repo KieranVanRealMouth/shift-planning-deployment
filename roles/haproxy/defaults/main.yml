@@ -1,0 +1,6 @@
+---
+# Default values for haproxy role
+
+haproxy_config_path: /etc/haproxy/haproxy.cfg
+haproxy_template: haproxy.cfg.j2
+haproxy_stats_port: 8404

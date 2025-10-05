@@ -1,0 +1,35 @@
+---
+# Firewall setup role
+
+- name: Install firewalld and required packages
+  ansible.builtin.dnf:
+    name: "{{ firewalld_packages }}"
+    state: present
+  tags: ["infrastructure", "firewall"]
+
+- name: Start and enable firewalld
+  ansible.builtin.systemd:
+    name: firewalld
+    state: started
+    enabled: yes
+  tags: ["infrastructure", "firewall"]
+
+- name: Configure firewall ports
+  ansible.posix.firewalld:
+    port: "{{ item }}/tcp"
+    permanent: yes
+    state: enabled
+  loop: "{{ firewalld_ports }}"
+  notify: reload firewall
+  tags: ["infrastructure", "firewall"]
+
+- name: Reload firewall to apply changes
+  ansible.builtin.systemd:
+    name: firewalld
+    state: reloaded
+  tags: ["infrastructure", "firewall"]
+
+- name: Display firewall configuration
+  ansible.builtin.debug:
+    msg: "Firewall configured with open ports: {{ firewalld_ports | join(', ') }}"
+  tags: ["infrastructure", "firewall"]

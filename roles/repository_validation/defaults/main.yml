@@ -1,0 +1,3 @@
+---
+# Default values for repository_validation role
+# All configuration comes from group_vars, no defaults needed here
